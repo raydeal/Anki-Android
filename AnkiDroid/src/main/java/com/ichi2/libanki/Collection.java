@@ -28,6 +28,7 @@ import com.ichi2.anki.AnkiDroidApp;
 import com.ichi2.anki.CardUtils;
 import com.ichi2.anki.R;
 import com.ichi2.anki.UIUtils;
+import com.ichi2.anki.analytics.UsageAnalytics;
 import com.ichi2.anki.exception.ConfirmModSchemaException;
 import com.ichi2.async.DeckTask;
 import com.ichi2.compat.CompatHelper;
@@ -54,6 +55,8 @@ import java.util.Map;
 import java.util.Random;
 import java.util.regex.Pattern;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 import androidx.sqlite.db.SupportSQLiteStatement;
 import timber.log.Timber;
@@ -305,6 +308,33 @@ public class Collection {
         }
         return buf.toString();
     }
+
+
+    // NOT in libanki
+    @Nullable
+    public Long getLastAnkiDroidVersion() {
+        try {
+            if (mConf.optLong("AnkiDroidVersion", -1) != -1) {
+                return mConf.getLong("AnkiDroidVersion");
+            }
+        } catch (JSONException e) {
+            Timber.w(e, "Unable to get AnkiDroidVersion from Deck conf");
+        }
+        return null;
+    }
+
+
+    // NOT in libanki
+    public void setLastAnkiDroidVersion(@NonNull Long versionCode) {
+        try {
+            mConf.put("AnkiDroidVersion", versionCode);
+            flush();
+        } catch (JSONException e) {
+            Timber.e(e, "Unable to set AnkiDroidVersion in Deck conf");
+            AnkiDroidApp.sendExceptionReport(e, "Unable to set AnkiDroidVersion in Deck conf");
+        }
+    }
+
 
     /**
      * Mark DB modified. DB operations and the deck/tag/model managers do this automatically, so this is only necessary
@@ -1748,20 +1778,19 @@ public class Collection {
      */
 
     /**
-     * Track database corruption problems - AcraLimiter should quench it if it's a torrent
-     * but we will take care to limit possible data usage by limiting count we send regardless
+     * Track database corruption problems and post analytics events for tracking
      *
-     * @param integrityCheckProblems list of problems, the first 10 will be logged and sent via ACRA
+     * @param integrityCheckProblems list of problems, the first 10 will be used
      */
-    private void logProblems(ArrayList integrityCheckProblems) {
+    private void logProblems(ArrayList<String> integrityCheckProblems) {
 
         if (integrityCheckProblems.size() > 0) {
             StringBuffer additionalInfo = new StringBuffer();
             for (int i = 0; ((i < 10) && (integrityCheckProblems.size() > i)); i++) {
                 additionalInfo.append(integrityCheckProblems.get(i)).append("\n");
+                // log analytics event so we can see trends if user allows it
+                UsageAnalytics.sendAnalyticsEvent("DatabaseCorruption", integrityCheckProblems.get(i));
             }
-            AnkiDroidApp.sendExceptionReport(
-                    new Exception("Problem list (limited to first 10)"), "Collection.fixIntegrity()", additionalInfo.toString());
             Timber.i("fixIntegrity() Problem list (limited to first 10):\n%s", additionalInfo);
         } else {
             Timber.i("fixIntegrity() no problems found");
